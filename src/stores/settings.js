@@ -25,7 +25,7 @@ function readStoredFontScale() {
 export const useSettingsStore = defineStore('settings', () => {
   const deepseekApiKey = ref(localStorage.getItem(KEY_STORAGE) || '')
   const storedTheme = localStorage.getItem(THEME_STORAGE)
-  const darkMode = ref(storedTheme ? storedTheme === 'dark' : true)
+  const darkMode = ref(storedTheme ? storedTheme === 'dark' : false)
   const fontScale = ref(readStoredFontScale())
 
   function applyTheme() {
