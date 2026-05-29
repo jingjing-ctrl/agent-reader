@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
+  base: '/agent-reader/',
   optimizeDeps: {
     include: ['epubjs', 'pdfjs-dist'],
   },

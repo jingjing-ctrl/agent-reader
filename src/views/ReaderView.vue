@@ -39,6 +39,7 @@ const modal = reactive({
   content: '',
   loading: false,
   error: false,
+  variant: 'default',
 })
 
 const restoring = ref(false)
@@ -153,13 +154,19 @@ function requireApiKey() {
   if (!settings.deepseekApiKey) {
     modal.title = '需要配置 API Key'
     modal.content =
-      '请先在右上角设置中填写 DeepSeek API Key，才能使用 AI 功能。'
+      '请先在右上角设置中填写 DeepSeek API Key，才能使用翻译、AI 分析等功能。'
     modal.loading = false
     modal.error = false
+    modal.variant = 'alert'
     modal.visible = true
     return false
   }
   return true
+}
+
+function goSettingsFromModal() {
+  modal.visible = false
+  router.push({ name: 'settings' })
 }
 
 function selectParagraph(p) {
@@ -334,6 +341,7 @@ function onPageSlider(e) {
 
 function closeModal() {
   modal.visible = false
+  modal.variant = 'default'
 }
 
 function goToLibrary() {
@@ -486,9 +494,17 @@ function goToLibrary() {
       :title="modal.title"
       :loading="modal.loading"
       :error="modal.error"
+      :variant="modal.variant"
       @close="closeModal"
     >
-      {{ modal.content }}
+      <div v-if="modal.variant === 'alert'" class="api-key-alert">
+        <p class="api-key-alert-text">{{ modal.content }}</p>
+        <button type="button" class="api-key-alert-btn" @click="goSettingsFromModal">
+          <span class="api-key-btn-icon" aria-hidden="true">◈</span>
+          前往设置
+        </button>
+      </div>
+      <template v-else>{{ modal.content }}</template>
     </AppModal>
   </div>
 </template>
@@ -744,5 +760,48 @@ function goToLibrary() {
   font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+.api-key-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.api-key-alert-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.75;
+  color: var(--text-muted);
+}
+
+.api-key-alert-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  box-shadow: 0 2px 16px var(--accent-glow);
+  transition: filter 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+
+.api-key-alert-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 24px var(--accent-glow);
+}
+
+.api-key-btn-icon {
+  font-size: 0.85rem;
+  opacity: 0.9;
 }
 </style>
