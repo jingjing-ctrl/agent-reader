@@ -1,4 +1,7 @@
-const API_URL = '/api/deepseek/v1/chat/completions'
+/** 开发环境走 Vite 代理；GitHub Pages 等静态部署无服务端代理，需直连官方 API */
+const API_URL = import.meta.env.DEV
+  ? '/api/deepseek/v1/chat/completions'
+  : 'https://api.deepseek.com/v1/chat/completions'
 
 /** 将各类异常转为用户可读的中文提示 */
 export function formatDeepSeekError(err, action = '请求') {

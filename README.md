@@ -85,7 +85,8 @@ AI 功能需要 DeepSeek API Key：
 
 1. 登录后进入右上角 **设置**（或顶栏齿轮）
 2. 在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建 API Key 并粘贴保存
-3. 开发环境下，请求通过 Vite 代理 `/api/deepseek` 转发至 `https://api.deepseek.com`，避免浏览器跨域限制
+3. **本地开发**：请求经 Vite 代理 `/api/deepseek` 转发至 `https://api.deepseek.com`，避免跨域问题
+4. **GitHub Pages 等静态部署**：构建后直接请求 `https://api.deepseek.com`（无 `/api/deepseek` 代理，否则会 405）
 
 > API Key 仅保存在本机浏览器，不会上传至本项目以外的第三方服务（除 DeepSeek 官方接口外）。
 
