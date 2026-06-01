@@ -24,10 +24,18 @@ const emit = defineEmits(['click', 'toggle-select', 'toggle-menu', 'move-to-grou
     </label>
 
     <div class="card-cover-wrap">
-      <div class="card-cover" :style="getCoverStyle(book)">
-        <div class="cover-shine" />
-        <span class="cover-spine" aria-hidden="true" />
-        <span class="cover-initial">{{ getCoverInitial(book) }}</span>
+      <div class="card-cover" :style="book.coverUrl ? undefined : getCoverStyle(book)">
+        <img
+          v-if="book.coverUrl"
+          :src="book.coverUrl"
+          :alt="book.title"
+          class="cover-img"
+        />
+        <template v-else>
+          <div class="cover-shine" />
+          <span class="cover-spine" aria-hidden="true" />
+          <span class="cover-initial">{{ getCoverInitial(book) }}</span>
+        </template>
       </div>
     </div>
 
@@ -157,7 +165,13 @@ const emit = defineEmits(['click', 'toggle-select', 'toggle-menu', 'move-to-grou
   overflow: hidden;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.1);
   transition: box-shadow 0.28s ease;
-  opacity: 0.8;
+}
+
+.cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .book-card:hover .card-cover {

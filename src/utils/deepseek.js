@@ -90,6 +90,55 @@ export function translateToEnglish(apiKey, text) {
   ])
 }
 
+function parseJsonArray(raw) {
+  const trimmed = raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()
+  const parsed = JSON.parse(trimmed)
+  if (!Array.isArray(parsed)) {
+    throw new Error('翻译失败：批量翻译结果格式无效')
+  }
+  return parsed
+}
+
+/** 批量翻译段落，返回 { [paragraphId]: englishText } */
+export async function translateBatchToEnglish(apiKey, items) {
+  if (!items?.length) return {}
+  if (items.length === 1) {
+    const text = await translateToEnglish(apiKey, items[0].text)
+    return { [items[0].id]: text }
+  }
+
+  const payload = JSON.stringify(items.map(({ id, text }) => ({ id, text })))
+  const raw = await request(apiKey, [
+    {
+      role: 'system',
+      content:
+        'You are a professional translator. The user sends a JSON array of { id, text }. Translate each text into natural English. Return ONLY a valid JSON array with the same id values and translated text in the text field. No markdown fences or explanations.',
+    },
+    { role: 'user', content: payload },
+  ])
+
+  let parsed
+  try {
+    parsed = parseJsonArray(raw)
+  } catch {
+    throw new Error('翻译失败：无法解析批量翻译结果')
+  }
+
+  const result = {}
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i]
+    const source = items[i]
+    if (item?.id && item?.text) {
+      result[item.id] = String(item.text).trim()
+      continue
+    }
+    if (source?.id && item?.text) {
+      result[source.id] = String(item.text).trim()
+    }
+  }
+  return result
+}
+
 export function analyzeParagraph(apiKey, text) {
   return request(apiKey, [
     {

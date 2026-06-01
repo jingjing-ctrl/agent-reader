@@ -1,8 +1,10 @@
 <script setup>
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
 
-defineProps({
+const props = defineProps({
   hasSelection: Boolean,
+  selectedText: { type: String, default: '' },
+  selectedType: { type: String, default: 'p' },
   analysisContent: { type: String, default: '' },
   analysisLoading: Boolean,
   analysisError: Boolean,
@@ -10,11 +12,11 @@ defineProps({
 
 const emit = defineEmits(['analyze'])
 
-const router = useRouter()
-
-function goSettings() {
-  router.push({ name: 'settings' })
-}
+const selectionTextClass = computed(() => {
+  const type = props.selectedType || 'p'
+  if (['h1', 'h2', 'h3', 'h4'].includes(type)) return `selection-text selection-text--${type}`
+  return 'selection-text'
+})
 </script>
 
 <template>
@@ -31,13 +33,23 @@ function goSettings() {
         <h2>AI 助手</h2>
         <span class="tech-badge">NEURAL</span>
       </div>
-      <button class="settings-btn" type="button" title="设置" @click="goSettings">
-        <span class="settings-icon">⚙</span>
-      </button>
     </div>
 
     <div class="panel-body" :class="{ 'panel-body--split': hasSelection }">
       <template v-if="hasSelection">
+        <section v-if="selectedText" class="tech-card selection-card">
+          <div class="action-card__head">
+            <span class="step-num">00</span>
+            <div class="action-card__meta">
+              <span class="card-title">选中段落</span>
+              <span class="action-card__desc">当前分析对象</span>
+            </div>
+          </div>
+          <div class="selection-quote scroll-area">
+            <p :class="selectionTextClass">{{ selectedText }}</p>
+          </div>
+        </section>
+
         <section
           class="tech-card action-card action-card--analysis"
           :class="{ 'action-card--expanded': analysisLoading || analysisContent }"
@@ -204,7 +216,6 @@ function goSettings() {
   z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 1rem 1.15rem;
   flex-shrink: 0;
   border-bottom: 1px solid var(--ai-border);
@@ -267,29 +278,6 @@ function goSettings() {
   background: rgba(34, 211, 238, 0.08);
 }
 
-.settings-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  border: 1px solid var(--ai-border);
-  background: rgba(59, 130, 246, 0.08);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.25s;
-}
-
-.settings-btn:hover {
-  border-color: var(--ai-cyan);
-  color: var(--ai-cyan);
-  box-shadow: 0 0 16px rgba(34, 211, 238, 0.2);
-}
-
-.settings-icon {
-  font-size: 1rem;
-}
-
 .panel-body {
   position: relative;
   z-index: 1;
@@ -333,6 +321,68 @@ function goSettings() {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+}
+
+.selection-card {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.selection-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, var(--ai-cyan), var(--ai-blue));
+  opacity: 0.85;
+}
+
+.selection-quote {
+  flex: 0 0 auto;
+  height: auto;
+  max-height: 180px;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  background: rgba(15, 23, 42, 0.45);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+[data-theme='light'] .selection-quote {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+.selection-text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.75;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.selection-text--h1 {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.selection-text--h2 {
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.selection-text--h3,
+.selection-text--h4 {
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 
 .panel-body--split .action-card--analysis {

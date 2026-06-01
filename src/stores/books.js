@@ -24,22 +24,32 @@ export const LIBRARY_FILTER_UNGROUPED = 'ungrouped'
 const contentCache = new Map()
 
 function normalizeStoredContent(data) {
-  if (!data?.paragraphs?.length) return null
+  if (!data?.paragraphs?.length || (data.v ?? 0) < 9) return null
   const paragraphs = data.paragraphs
   const pages =
     data.pages?.length > 0 ? data.pages : paginateParagraphs(paragraphs)
-  return { paragraphs, pages }
+  return {
+    paragraphs,
+    pages,
+    coverUrl: data.coverUrl || null,
+    toc: Array.isArray(data.toc) ? data.toc : [],
+  }
 }
 
-function packContentForStorage(paragraphs) {
-  return { v: 2, paragraphs }
+function packContentForStorage(paragraphs, coverUrl = null, toc = []) {
+  return { v: 9, paragraphs, coverUrl: coverUrl || null, toc: toc || [] }
 }
 
-function saveLastSession(bookId, pageIndex) {
+function saveLastSession(bookId, pageIndex, paragraphId = null) {
   try {
     localStorage.setItem(
       SESSION_STORAGE,
-      JSON.stringify({ bookId, pageIndex, at: Date.now() })
+      JSON.stringify({
+        bookId,
+        pageIndex,
+        paragraphId: paragraphId || null,
+        at: Date.now(),
+      })
     )
   } catch {
     /* ignore */
@@ -76,8 +86,10 @@ function saveBooksToStorage(books) {
     fileName: b.fileName,
     addedAt: b.addedAt,
     lastPageIndex: b.lastPageIndex ?? 0,
+    lastParagraphId: b.lastParagraphId || null,
     pageCount: b.pageCount ?? 0,
     groupId: b.groupId || null,
+    coverUrl: b.coverUrl || null,
   }))
   localStorage.setItem(BOOKS_STORAGE, JSON.stringify(slim))
 }
@@ -105,8 +117,13 @@ function saveGroupsToStorage(groups) {
   localStorage.setItem(GROUPS_STORAGE, JSON.stringify(groups))
 }
 
-function cacheContent(id, paragraphs, pages) {
-  contentCache.set(id, { paragraphs, pages })
+function cacheContent(id, paragraphs, pages, coverUrl = null, toc = []) {
+  contentCache.set(id, {
+    paragraphs,
+    pages,
+    coverUrl: coverUrl || null,
+    toc: toc || [],
+  })
 }
 
 export const useBooksStore = defineStore('books', () => {
@@ -120,6 +137,7 @@ export const useBooksStore = defineStore('books', () => {
   const currentBookId = ref(null)
   const pages = ref([])
   const currentPageIndex = ref(0)
+  const activeTocId = ref(null)
   const parsing = ref(false)
   const hydratingId = ref(null)
   const pendingNavigationBookId = ref(null)
@@ -130,6 +148,14 @@ export const useBooksStore = defineStore('books', () => {
     } catch (err) {
       console.warn('书架元数据保存失败:', err)
     }
+  }
+
+  function applyCoverToMeta(id, coverUrl) {
+    if (!coverUrl) return false
+    const meta = getBookMeta(id)
+    if (!meta || meta.coverUrl === coverUrl) return false
+    meta.coverUrl = coverUrl
+    return true
   }
 
   function getBookMeta(id) {
@@ -238,9 +264,15 @@ export const useBooksStore = defineStore('books', () => {
     if (!meta) return null
     const cached = contentCache.get(id)
     if (!cached) {
-      return { ...meta, paragraphs: [], pages: [] }
+      return { ...meta, paragraphs: [], pages: [], coverUrl: null, toc: [] }
     }
-    return { ...meta, paragraphs: cached.paragraphs, pages: cached.pages }
+    return {
+      ...meta,
+      paragraphs: cached.paragraphs,
+      pages: cached.pages,
+      coverUrl: cached.coverUrl || null,
+      toc: cached.toc || [],
+    }
   }
 
   async function loadContentFromFile(id) {
@@ -251,7 +283,7 @@ export const useBooksStore = defineStore('books', () => {
     const fileName = fileRec.fileName || meta?.fileName || 'book.epub'
     const format =
       fileRec.format || meta?.format || detectBookFormat(fileName) || 'epub'
-    const { paragraphs } = await parseBookFromArrayBuffer(
+    const { paragraphs, coverUrl, toc } = await parseBookFromArrayBuffer(
       fileRec.buffer,
       fileName,
       format
@@ -259,14 +291,17 @@ export const useBooksStore = defineStore('books', () => {
     if (!paragraphs.length) return false
 
     const pageList = paginateParagraphs(paragraphs)
-    cacheContent(id, paragraphs, pageList)
+    cacheContent(id, paragraphs, pageList, coverUrl, toc)
 
     if (meta) {
       meta.pageCount = pageList.length
+      applyCoverToMeta(id, coverUrl)
       persist()
     }
 
-    saveBookContent(id, packContentForStorage(paragraphs)).catch(() => {})
+    saveBookContent(id, packContentForStorage(paragraphs, coverUrl, toc)).catch(
+      () => {}
+    )
     return true
   }
 
@@ -277,10 +312,19 @@ export const useBooksStore = defineStore('books', () => {
       const raw = await loadBookContent(id)
       const normalized = normalizeStoredContent(raw)
       if (normalized) {
-        cacheContent(id, normalized.paragraphs, normalized.pages)
+        cacheContent(
+          id,
+          normalized.paragraphs,
+          normalized.pages,
+          normalized.coverUrl,
+          normalized.toc
+        )
         const meta = getBookMeta(id)
-        if (meta && meta.pageCount !== normalized.pages.length) {
-          meta.pageCount = normalized.pages.length
+        if (meta) {
+          if (meta.pageCount !== normalized.pages.length) {
+            meta.pageCount = normalized.pages.length
+          }
+          applyCoverToMeta(id, normalized.coverUrl)
           persist()
         }
         return true
@@ -303,6 +347,10 @@ export const useBooksStore = defineStore('books', () => {
   function clampPageIndex(meta, index) {
     const maxIdx = Math.max(0, (meta.pageCount ?? 1) - 1)
     return Math.min(Math.max(0, index ?? 0), maxIdx)
+  }
+
+  function setActiveTocId(id) {
+    activeTocId.value = id || null
   }
 
   function openBookMeta(id) {
@@ -331,11 +379,16 @@ export const useBooksStore = defineStore('books', () => {
     if (!format || !isSupportedBookFile(file)) {
       throw new Error('仅支持 EPUB 与 PDF 格式')
     }
+
+    const existing = books.value.find((b) => b.fileName === file.name)
+    if (existing) {
+      return { book: getBook(existing.id), isExisting: true }
+    }
+
     parsing.value = true
     try {
       const arrayBuffer = await file.arrayBuffer()
-      const existing = books.value.find((b) => b.fileName === file.name)
-      const id = existing?.id ?? 'book-' + Date.now()
+      const id = 'book-' + Date.now()
 
       await saveBookFile(id, {
         buffer: arrayBuffer,
@@ -344,7 +397,7 @@ export const useBooksStore = defineStore('books', () => {
         savedAt: Date.now(),
       })
 
-      const { title, paragraphs } = await parseBookFromArrayBuffer(
+      const { title, paragraphs, coverUrl, toc } = await parseBookFromArrayBuffer(
         arrayBuffer,
         file.name,
         format
@@ -354,10 +407,10 @@ export const useBooksStore = defineStore('books', () => {
       }
 
       const pageList = paginateParagraphs(paragraphs)
-      cacheContent(id, paragraphs, pageList)
+      cacheContent(id, paragraphs, pageList, coverUrl, toc)
 
       try {
-        await saveBookContent(id, packContentForStorage(paragraphs))
+        await saveBookContent(id, packContentForStorage(paragraphs, coverUrl, toc))
       } catch {
         /* 段落缓存失败不影响，已有原文件 */
       }
@@ -370,34 +423,22 @@ export const useBooksStore = defineStore('books', () => {
           ? options.groupId
           : null
 
-      if (existing) {
-        existing.title = title || existing.title
-        existing.format = format
-        existing.pageCount = pageList.length
-        if (existing.lastPageIndex >= pageList.length) {
-          existing.lastPageIndex = 0
-        }
-        if (assignGroupId) existing.groupId = assignGroupId
-        persist()
-      } else {
-        const meta = {
-          id,
-          title:
-            title || file.name.replace(/\.(epub|pdf)$/i, ''),
-          fileName: file.name,
-          format,
-          addedAt: Date.now(),
-          lastPageIndex: 0,
-          pageCount: pageList.length,
-          groupId: assignGroupId,
-        }
-        books.value.unshift(meta)
-        persist()
+      const meta = {
+        id,
+        title: title || file.name.replace(/\.(epub|pdf)$/i, ''),
+        fileName: file.name,
+        format,
+        addedAt: Date.now(),
+        lastPageIndex: 0,
+        pageCount: pageList.length,
+        groupId: assignGroupId,
+        coverUrl: coverUrl || null,
       }
+      books.value.unshift(meta)
+      persist()
 
-      const meta = getBookMeta(id)
-      saveLastSession(id, meta?.lastPageIndex ?? 0)
-      return getBook(id)
+      saveLastSession(id, 0)
+      return { book: getBook(id), isExisting: false }
     } finally {
       parsing.value = false
     }
@@ -409,12 +450,16 @@ export const useBooksStore = defineStore('books', () => {
     const meta = getBookMeta(id)
     currentBookId.value = id
     pages.value = book.pages
-    const idx = pageIndex ?? book.lastPageIndex ?? 0
+    const saved = getLastReadingPosition(id)
+    const idx = pageIndex ?? saved.pageIndex ?? 0
     currentPageIndex.value = clampPageIndex(
       { pageCount: book.pages.length, ...meta },
       idx
     )
-    saveReadingProgress()
+    if (saved.paragraphId && !pageIndex) {
+      meta.lastParagraphId = saved.paragraphId
+    }
+    saveReadingProgress(meta.lastParagraphId || null)
     return true
   }
 
@@ -424,15 +469,41 @@ export const useBooksStore = defineStore('books', () => {
     saveReadingProgress()
   }
 
-  function saveReadingProgress() {
+  function getLastReadingPosition(id) {
+    const meta = getBookMeta(id)
+    if (!meta) return { pageIndex: 0, paragraphId: null }
+    return {
+      pageIndex: meta.lastPageIndex ?? 0,
+      paragraphId: meta.lastParagraphId || null,
+    }
+  }
+
+  function saveReadingPosition(pageIndex, paragraphId = null) {
+    if (!currentBookId.value) return
+    const meta = getBookMeta(currentBookId.value)
+    if (!meta) return
+    currentPageIndex.value = clampPageIndex(
+      { pageCount: pages.value.length || meta.pageCount, ...meta },
+      pageIndex
+    )
+    if (paragraphId) meta.lastParagraphId = paragraphId
+    saveReadingProgress(paragraphId)
+  }
+
+  function saveReadingProgress(paragraphId = null) {
     const meta = books.value.find((b) => b.id === currentBookId.value)
     if (!meta) return
     meta.lastPageIndex = currentPageIndex.value
+    if (paragraphId) meta.lastParagraphId = paragraphId
     if (pages.value.length) {
       meta.pageCount = pages.value.length
     }
     persist()
-    saveLastSession(currentBookId.value, currentPageIndex.value)
+    saveLastSession(
+      currentBookId.value,
+      currentPageIndex.value,
+      meta.lastParagraphId || null
+    )
   }
 
   function removeBook(id) {
@@ -473,6 +544,43 @@ export const useBooksStore = defineStore('books', () => {
 
   const currentBook = () => getBook(currentBookId.value)
 
+  async function hydrateLibraryCovers() {
+    let changed = false
+    const pending = []
+
+    for (const meta of books.value) {
+      if (meta.coverUrl) continue
+
+      const cached = contentCache.get(meta.id)
+      if (cached?.coverUrl) {
+        if (applyCoverToMeta(meta.id, cached.coverUrl)) changed = true
+        continue
+      }
+
+      pending.push(meta.id)
+    }
+
+    if (changed) persist()
+
+    for (const id of pending) {
+      try {
+        const raw = await loadBookContent(id)
+        if (raw?.coverUrl) {
+          if (applyCoverToMeta(id, raw.coverUrl)) persist()
+          continue
+        }
+
+        if ((raw?.v ?? 0) < 9) {
+          await loadContentFromFile(id)
+          const coverUrl = contentCache.get(id)?.coverUrl
+          if (applyCoverToMeta(id, coverUrl)) persist()
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   async function restoreLastSession() {
     const session = loadLastSession()
     if (!session?.bookId || !getBookMeta(session.bookId)) return null
@@ -490,6 +598,7 @@ export const useBooksStore = defineStore('books', () => {
     currentBookId,
     pages,
     currentPageIndex,
+    activeTocId,
     parsing,
     hydratingId,
     pendingNavigationBookId,
@@ -514,7 +623,11 @@ export const useBooksStore = defineStore('books', () => {
     nextPage,
     prevPage,
     goToPage,
+    setActiveTocId,
+    getLastReadingPosition,
+    saveReadingPosition,
     hasContent,
+    hydrateLibraryCovers,
     markPendingNavigation,
     clearPendingNavigation,
     isPendingNavigation,

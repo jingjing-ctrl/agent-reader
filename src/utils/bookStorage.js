@@ -1,23 +1,40 @@
 const DB_NAME = 'agent-reader-db'
 const STORE_CONTENT = 'book-content'
 const STORE_FILES = 'book-files'
-const DB_VERSION = 2
+const DB_VERSION = 3
+
+async function resolveOpenVersion() {
+  if (typeof indexedDB.databases !== 'function') return DB_VERSION
+  try {
+    const dbs = await indexedDB.databases()
+    const existing = dbs.find((db) => db.name === DB_NAME)
+    if (existing?.version && existing.version > DB_VERSION) {
+      return existing.version
+    }
+  } catch {
+    /* ignore */
+  }
+  return DB_VERSION
+}
 
 function openDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result
-      if (!db.objectStoreNames.contains(STORE_CONTENT)) {
-        db.createObjectStore(STORE_CONTENT)
-      }
-      if (!db.objectStoreNames.contains(STORE_FILES)) {
-        db.createObjectStore(STORE_FILES)
-      }
-    }
-  })
+  return resolveOpenVersion().then(
+    (version) =>
+      new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, version)
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => resolve(request.result)
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result
+          if (!db.objectStoreNames.contains(STORE_CONTENT)) {
+            db.createObjectStore(STORE_CONTENT)
+          }
+          if (!db.objectStoreNames.contains(STORE_FILES)) {
+            db.createObjectStore(STORE_FILES)
+          }
+        }
+      })
+  )
 }
 
 function runTx(storeName, mode, run) {

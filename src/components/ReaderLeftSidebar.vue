@@ -2,6 +2,9 @@
 import { computed } from 'vue'
 import { useBooksStore } from '../stores/books'
 import { formatLabel, detectBookFormat } from '../utils/bookImport'
+import { getCoverInitial, getCoverStyle } from '../utils/bookCover'
+import { isTocItemActive } from '../utils/toc'
+import ReaderStatsPanel from './ReaderStatsPanel.vue'
 
 const props = defineProps({
   book: { type: Object, required: true },
@@ -25,33 +28,14 @@ const progress = computed(() => {
   }
 })
 
-const tocSections = computed(() => {
-  const pages = booksStore.pages.length
-    ? booksStore.pages
-    : props.book.pages || []
-  const sections = []
-  const perSection = 6
-  for (let i = 0; i < pages.length; i += perSection) {
-    const num = Math.floor(i / perSection) + 1
-    const part = Math.ceil(num / 5)
-    sections.push({
-      pageIndex: i,
-      partLabel: part > 1 ? `第${['一', '二', '三', '四', '五'][part - 1] || part}部` : null,
-      title: `第 ${num} 节`,
-      pageLabel: `第 ${i + 1} 页`,
-      active:
-        booksStore.currentPageIndex >= i &&
-        booksStore.currentPageIndex < i + perSection,
-    })
-  }
-  return sections
-})
+const tocItems = computed(() => props.book.toc || [])
+
+const tocPageLabel = (pageIndex) => `第 ${pageIndex + 1} 页`
 </script>
 
 <template>
   <aside class="sidebar">
     <div class="book-card glass-panel">
-      <div class="cover">📕</div>
       <h2 class="book-title">{{ book.title }}</h2>
       <p class="book-meta">{{ formatLabel(book.format || detectBookFormat(book.fileName)) }} · {{ book.fileName }}</p>
       <div class="progress-wrap">
@@ -62,83 +46,111 @@ const tocSections = computed(() => {
       </div>
     </div>
 
-    <h3 class="toc-heading">目录</h3>
+    <div class="toc-section">
+      <div class="toc-header">
+        <div class="cover-wrap">
+          <img
+            v-if="book.coverUrl"
+            :src="book.coverUrl"
+            :alt="book.title"
+            class="cover-img"
+          />
+          <div v-else class="cover-fallback" :style="getCoverStyle(book)">
+            <span>{{ getCoverInitial(book) }}</span>
+          </div>
+        </div>
+        <h3 class="toc-heading">目录</h3>
+      </div>
 
-    <div class="toc-scroll">
-      <template v-for="(item, idx) in tocSections" :key="idx">
-        <p
-          v-if="item.partLabel && (idx === 0 || tocSections[idx - 1]?.partLabel !== item.partLabel)"
-          class="part-label"
-        >
-          {{ item.partLabel }}
-        </p>
+      <div class="toc-scroll">
+        <p v-if="!tocItems.length" class="toc-empty">暂无目录</p>
         <button
+          v-for="(item, idx) in tocItems"
+          :key="item.id || idx"
           type="button"
           class="toc-item"
-          :class="{ active: item.active }"
-          @click="emit('goto-page', item.pageIndex)"
+          :class="{
+            active: isTocItemActive(
+              item,
+              idx,
+              tocItems,
+              booksStore.currentPageIndex,
+              booksStore.activeTocId
+            ),
+          }"
+          :style="{ paddingLeft: `calc(0.65rem + ${item.depth || 0} * 0.85rem)` }"
+          @click="emit('goto-page', item)"
         >
-          <span>{{ item.title }}</span>
-          <span class="page-num">{{ item.pageLabel }}</span>
+          <span class="toc-title">{{ item.title }}</span>
+          <span class="page-num">{{ tocPageLabel(item.pageIndex) }}</span>
         </button>
-      </template>
-    </div>
-
-    <div class="stats glass-panel">
-      <h3>阅读统计</h3>
-      <div class="stats-row">
-        <div class="donut">
-          <svg viewBox="0 0 36 36">
-            <circle class="donut-bg" cx="18" cy="18" r="15.5" />
-            <circle
-              class="donut-fill"
-              cx="18"
-              cy="18"
-              r="15.5"
-              :stroke-dasharray="`${progress.percent} ${100 - progress.percent}`"
-            />
-          </svg>
-          <span class="donut-label">{{ progress.percent }}%</span>
-        </div>
-        <div class="stats-info">
-          <p><strong>{{ progress.current }}</strong> / {{ progress.total }} 页</p>
-          <p class="dim">本次会话阅读</p>
-        </div>
       </div>
     </div>
+
+    <ReaderStatsPanel class="sidebar-stats" :book="book" />
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  width: var(--sidebar-width);
+  width: 100%;
+  height: 100%;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   padding: 1rem;
   background: var(--bg-panel);
-  border-right: 1px solid var(--border);
   overflow: hidden;
+  min-height: 0;
 }
 
 .book-card {
   padding: 1rem;
-  text-align: center;
+  text-align: left;
   flex-shrink: 0;
 }
 
-.cover {
-  width: 72px;
-  height: 96px;
-  margin: 0 auto 0.75rem;
-  background: var(--bg-muted);
+.toc-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toc-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0 0.25rem 0.5rem;
+}
+
+.cover-wrap {
+  flex-shrink: 0;
+}
+
+.cover-img,
+.cover-fallback {
+  width: 56px;
+  height: 74px;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.cover-img {
+  object-fit: cover;
+  display: block;
+}
+
+.cover-fallback {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
-  border: 1px solid var(--border);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(145deg, var(--cover-a), var(--cover-b));
 }
 
 .book-title {
@@ -178,8 +190,7 @@ const tocSections = computed(() => {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-muted);
-  padding: 0 0.25rem;
-  flex-shrink: 0;
+  margin: 0;
 }
 
 .toc-scroll {
@@ -188,22 +199,29 @@ const tocSections = computed(() => {
   min-height: 0;
 }
 
-.part-label {
-  font-size: 0.72rem;
+.toc-empty {
+  font-size: 0.78rem;
   color: var(--text-dim);
-  padding: 0.5rem 0.5rem 0.25rem;
-  font-weight: 500;
+  padding: 0.5rem 0.65rem;
 }
 
 .toc-item {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
   width: 100%;
   padding: 0.5rem 0.65rem;
   font-size: 0.82rem;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   text-align: left;
+}
+
+.toc-title {
+  flex: 1;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .toc-item:hover {
@@ -217,70 +235,18 @@ const tocSections = computed(() => {
 }
 
 .page-num {
-  font-size: 0.72rem;
-  color: var(--text-dim);
-}
-
-.stats {
-  padding: 0.85rem;
   flex-shrink: 0;
-}
-
-.stats h3 {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-bottom: 0.65rem;
-}
-
-.stats-row {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-}
-
-.donut {
-  position: relative;
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-}
-
-.donut svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.donut-bg {
-  fill: none;
-  stroke: var(--bg-muted);
-  stroke-width: 3;
-}
-
-.donut-fill {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-
-.donut-label {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: 600;
-}
-
-.stats-info p {
-  font-size: 0.8rem;
-}
-
-.stats-info .dim {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--text-dim);
-  margin-top: 0.15rem;
+  padding-top: 0.1rem;
+}
+
+.sidebar-stats {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.sidebar-stats :deep(.reader-stats) {
+  box-shadow: none;
 }
 </style>

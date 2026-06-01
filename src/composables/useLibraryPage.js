@@ -144,6 +144,7 @@ export function useLibraryPage() {
     const savedPage = readSessionInt(LIBRARY_PAGE_KEY, 1)
     currentPage.value = Math.min(Math.max(1, savedPage), totalPages.value)
 
+    booksStore.hydrateLibraryCovers()
     document.addEventListener('click', closeMenus)
   })
 
@@ -329,9 +330,20 @@ export function useLibraryPage() {
     if (!file) return
     error.value = ''
     try {
-      const book = await booksStore.addBookFromFile(file, { groupId: activeFilter.value })
+      const { book, isExisting } = await booksStore.addBookFromFile(file, {
+        groupId: activeFilter.value,
+      })
       if (!book?.id) throw new Error('导入失败，请重试')
-      await goToReader(book.id)
+      const title = book.title || book.fileName || '书籍'
+      if (isExisting) {
+        toast.showMessage(`《${title}》该书已导入，无需重复导入`, { type: 'info' })
+      } else {
+        toast.showSuccess(`《${title}》导入成功`)
+        if (currentPage.value !== 1) {
+          currentPage.value = 1
+          writeSession(LIBRARY_PAGE_KEY, 1)
+        }
+      }
     } catch (err) {
       booksStore.clearPendingNavigation()
       error.value = err.message || '上传失败'

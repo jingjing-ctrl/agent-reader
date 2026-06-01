@@ -102,6 +102,73 @@ export function useReaderStream(booksStore, getScrollEl) {
     })
   }
 
+  function scrollToParagraph(pageIndex, paragraphId, attempt = 0) {
+    const el = getScrollEl()
+    if (!el) return
+
+    setStreamRangeAround(pageIndex)
+    booksStore.goToPage(pageIndex)
+
+    nextTick(() => {
+      nextTick(() => {
+        const target = paragraphId
+          ? el.querySelector(`[data-paragraph-id="${paragraphId}"]`)
+          : null
+
+        if (!target) {
+          if (attempt < 4) {
+            scrollToParagraph(pageIndex, paragraphId, attempt + 1)
+          } else {
+            scrollToPageStart(pageIndex)
+          }
+          return
+        }
+
+        const elTop = el.getBoundingClientRect().top
+        const y = target.getBoundingClientRect().top - elTop + el.scrollTop
+
+        isScrollAnchoring.value = true
+        el.scrollTop = Math.max(0, y - 12)
+        requestAnimationFrame(() => {
+          isScrollAnchoring.value = false
+        })
+      })
+    })
+  }
+
+  function restoreReadingPosition(pageIndex, paragraphId = null) {
+    if (!booksStore.pages.length) return
+    scrollToParagraph(pageIndex, paragraphId)
+  }
+
+  function captureReadingPosition(el) {
+    if (!el) return null
+
+    updateActivePageFromScroll(el)
+
+    const mid = el.scrollTop + el.clientHeight * 0.38
+    const elTop = el.getBoundingClientRect().top
+    const paragraphs = el.querySelectorAll('.paragraph[data-paragraph-id]')
+
+    for (const node of paragraphs) {
+      const rect = node.getBoundingClientRect()
+      const top = rect.top - elTop + el.scrollTop
+      const bottom = top + rect.height
+      if (mid >= top && mid < bottom) {
+        const chunk = node.closest('.reader-page-chunk')
+        return {
+          pageIndex: Number(chunk?.dataset.pageIndex ?? booksStore.currentPageIndex),
+          paragraphId: node.dataset.paragraphId || null,
+        }
+      }
+    }
+
+    return {
+      pageIndex: booksStore.currentPageIndex,
+      paragraphId: null,
+    }
+  }
+
   /** 翻到指定页并定位到该页第一个段落 */
   function goToPageAtStart(pageIndex) {
     const last = booksStore.pages.length - 1
@@ -291,6 +358,8 @@ export function useReaderStream(booksStore, getScrollEl) {
     streamPages,
     syncToPage,
     goToPageAtStart,
+    restoreReadingPosition,
+    captureReadingPosition,
     resetStream,
     onReaderScroll,
     onReaderWheel,
@@ -298,5 +367,6 @@ export function useReaderStream(booksStore, getScrollEl) {
     isScrollable,
     atScrollTop,
     atScrollBottom,
+    isScrollAnchoring,
   }
 }

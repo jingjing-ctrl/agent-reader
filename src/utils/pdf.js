@@ -1,4 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist'
+import {
+  enrichPdfToc,
+  buildFallbackTocFromHeadings,
+} from './toc'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -100,6 +104,7 @@ async function extractPageParagraphs(page, pageIndex) {
     return chunks.map((text, idx) => ({
       id: `pdf-p${pageIndex}-${idx}`,
       text,
+      type: 'p',
     }))
   }
 
@@ -107,7 +112,7 @@ async function extractPageParagraphs(page, pageIndex) {
     textContent.items.map((item) => item.str).join(' ')
   )
   if (fallback.length > 1) {
-    return [{ id: `pdf-p${pageIndex}-0`, text: fallback }]
+    return [{ id: `pdf-p${pageIndex}-0`, text: fallback, type: 'p' }]
   }
 
   return []
@@ -135,13 +140,30 @@ async function parsePdfInternal(file) {
   const pdf = await loadingTask.promise
 
   const paragraphs = []
+  const pageParagraphStarts = []
   const total = pdf.numPages
 
   for (let pageNum = 1; pageNum <= total; pageNum++) {
+    pageParagraphStarts.push({
+      pdfPage: pageNum,
+      paragraphIndex: paragraphs.length,
+    })
     const page = await pdf.getPage(pageNum)
     const pageParagraphs = await extractPageParagraphs(page, pageNum)
     paragraphs.push(...pageParagraphs)
     page.cleanup?.()
+  }
+
+  let toc = []
+  try {
+    const outline = await pdf.getOutline()
+    toc = await enrichPdfToc(outline, pdf, pageParagraphStarts)
+  } catch {
+    /* ignore */
+  }
+
+  if (!toc.length) {
+    toc = buildFallbackTocFromHeadings(paragraphs)
   }
 
   await pdf.destroy?.()
@@ -152,5 +174,5 @@ async function parsePdfInternal(file) {
     )
   }
 
-  return { title, paragraphs }
+  return { title, paragraphs, toc }
 }
